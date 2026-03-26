@@ -1,0 +1,106 @@
+.sidebar {
+  position: fixed;
+  top: calc(var(--nav-height) + var(--ticker-height));
+  left: 0;
+  bottom: 0;
+  width: var(--sidebar-width);
+  border-right: 1px solid var(--border-subtle);
+  overflow-y: auto;
+  z-index: 100;
+  transition: width var(--transition-base);
+}
+
+.sidebar--collapsed {
+  width: 48px;
+}
+
+.sidebar__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: var(--space-3);
+  color: var(--text-tertiary);
+  transition: color var(--transition-fast);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sidebar__toggle:hover {
+  color: var(--text-primary);
+}
+
+.sidebar__content {
+  padding: var(--space-4);
+}
+
+.sidebar__section {
+  margin-bottom: var(--space-4);
+}
+
+.sidebar__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-tertiary);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.sidebar__heading-icon {
+  font-size: var(--text-sm);
+}
+
+.sidebar__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.sidebar__item:hover {
+  color: var(--text-primary);
+  background: var(--bg-card);
+}
+
+.sidebar__item--active {
+  color: var(--accent-red);
+  background: rgba(233, 69, 96, 0.1);
+  border-left: 3px solid var(--accent-red);
+}
+
+.sidebar__item-icon {
+  font-size: var(--text-base);
+  flex-shrink: 0;
+}
+
+.sidebar__item-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar__divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: var(--space-4) var(--space-3);
+}
+
+@media (max-width: 1024px) {
+  .sidebar {
+    display: none;
+  }
+}
