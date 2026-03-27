@@ -1,10 +1,12 @@
 const { fetchAllFeeds } = require('./rssFetcher');
 const { summarizeArticle, generateAnalysis, categorizeArticle, isBreakingNews } = require('./aiProcessor');
+const { categorizeByKeywords } = require('./keywordCategorizer');
 const { isDuplicate, storeArticle } = require('./deduplicator');
 
 /**
- * Main news pipeline: Fetch → Deduplicate → AI Process → Store
- * Called by the cron scheduler and can be triggered manually
+ * Main news pipeline: Fetch → Deduplicate → Categorize → AI Process → Store
+ * Keyword categorization ALWAYS runs (no AI needed)
+ * AI processing is optional and enhances summaries/analysis when available
  */
 async function runNewsPipeline(options = {}) {
   const { skipAI = false, maxArticles = 50 } = options;
@@ -15,6 +17,7 @@ async function runNewsPipeline(options = {}) {
   console.log('═══════════════════════════════════════════════════');
   console.log(`  Time: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
   console.log(`  AI Processing: ${skipAI ? 'DISABLED' : 'ENABLED'}`);
+  console.log(`  Keyword Categorization: ALWAYS ON`);
   console.log('');
 
   // Step 1: Fetch all RSS feeds
@@ -30,16 +33,14 @@ async function runNewsPipeline(options = {}) {
   let duplicates = 0;
   let errors = 0;
   let stored = 0;
+  let categorized = 0;
 
   // Step 2: Process each article
   const articlesToProcess = rawArticles.slice(0, maxArticles);
 
   for (const rawArticle of articlesToProcess) {
     try {
-      // Skip if no title
-      if (!rawArticle.title || rawArticle.title.length < 10) {
-        continue;
-      }
+      if (!rawArticle.title || rawArticle.title.length < 10) continue;
 
       // Step 2a: Deduplication check
       if (isDuplicate(rawArticle.title, rawArticle.content)) {
@@ -52,31 +53,46 @@ async function runNewsPipeline(options = {}) {
 
       let summary = rawArticle.content?.slice(0, 300) || '';
       let analysis = null;
-      let categories = { regions: [], topics: [] };
       let breaking = false;
 
-      if (!skipAI && process.env.GEMINI_API_KEY) {
-        // Step 2b: AI Categorization
-        categories = await categorizeArticle(rawArticle.title, rawArticle.content);
-
-        // Step 2c: AI Summary
-        summary = await summarizeArticle(rawArticle.title, rawArticle.content);
-
-        // Step 2d: Generate analysis (only for first 10 articles to save API quota)
-        if (processed <= 10) {
-          analysis = await generateAnalysis(rawArticle.title, rawArticle.content, summary);
-        }
-
-        // Step 2e: Breaking news detection
-        breaking = await isBreakingNews(rawArticle.title, rawArticle.content);
+      // Step 2b: ALWAYS categorize by keywords (no AI needed)
+      let categories = categorizeByKeywords(rawArticle.title, rawArticle.content || '');
+      if (categories.regions.length > 0 || categories.topics.length > 0) {
+        categorized++;
       }
 
-      // Step 3: Store the article
+      // Step 2c: AI enhancement (optional)
+      if (!skipAI && process.env.GEMINI_API_KEY) {
+        try {
+          const aiCats = await categorizeArticle(rawArticle.title, rawArticle.content);
+          if (aiCats.regions?.length) categories.regions = [...new Set([...categories.regions, ...aiCats.regions])];
+          if (aiCats.topics?.length) categories.topics = [...new Set([...categories.topics, ...aiCats.topics])];
+        } catch (e) {}
+
+        try {
+          const aiSummary = await summarizeArticle(rawArticle.title, rawArticle.content);
+          if (aiSummary && !aiSummary.endsWith('...')) summary = aiSummary;
+        } catch (e) {}
+
+        if (processed <= 10) {
+          try { analysis = await generateAnalysis(rawArticle.title, rawArticle.content, summary); } catch (e) {}
+        }
+
+        try { breaking = await isBreakingNews(rawArticle.title, rawArticle.content); } catch (e) {}
+      }
+
+      // Keyword-based breaking detection fallback
+      if (!breaking) {
+        const bk = ['breaking', 'urgent', 'just in', 'killed', 'attack', 'war ', 'invasion', 'crisis', 'emergency', 'massacre'];
+        breaking = bk.some(kw => rawArticle.title.toLowerCase().includes(kw));
+      }
+
+      // Step 3: Store
       storeArticle({
         title: rawArticle.title,
-        summary: summary,
+        summary,
         content: rawArticle.content,
-        analysis: analysis,
+        analysis,
         source_id: rawArticle.source_id,
         original_url: rawArticle.original_url,
         image_url: rawArticle.image_url,
@@ -86,7 +102,7 @@ async function runNewsPipeline(options = {}) {
 
       stored++;
     } catch (err) {
-      console.error(`[Pipeline] Error processing article:`, err.message);
+      console.error(`[Pipeline] Error:`, err.message);
       errors++;
     }
   }
@@ -96,17 +112,18 @@ async function runNewsPipeline(options = {}) {
   console.log('\n═══════════════════════════════════════════════════');
   console.log('  GeoScope News Pipeline — Complete');
   console.log('═══════════════════════════════════════════════════');
-  console.log(`  Duration: ${duration}s`);
-  console.log(`  Fetched:    ${rawArticles.length}`);
-  console.log(`  Processed:  ${processed}`);
-  console.log(`  Duplicates: ${duplicates}`);
-  console.log(`  Stored:     ${stored}`);
-  console.log(`  Errors:     ${errors}`);
+  console.log(`  Duration:     ${duration}s`);
+  console.log(`  Fetched:      ${rawArticles.length}`);
+  console.log(`  Processed:    ${processed}`);
+  console.log(`  Duplicates:   ${duplicates}`);
+  console.log(`  Categorized:  ${categorized}`);
+  console.log(`  Stored:       ${stored}`);
+  console.log(`  Errors:       ${errors}`);
   console.log('═══════════════════════════════════════════════════\n');
 
   return {
     success: true,
-    stats: { fetched: rawArticles.length, processed, duplicates, stored, errors, duration }
+    stats: { fetched: rawArticles.length, processed, duplicates, categorized, stored, errors, duration }
   };
 }
 
